@@ -34,6 +34,7 @@ def run_wiki_service():
             "region": "en",
             "multi-thread": True,
         }
+        # todo 待优化: 运行之前加载浏览器驱动
         wiki_service.run(**options)
 
 
