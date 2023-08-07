@@ -15,9 +15,10 @@ from threading import Lock
 from Utils import ThreadUtils
 import logging, coloredlogs
 
+
 class WikiService(Services.Service.Service):
 
-    def __init__(self, excel_workbook: openpyxl.Workbook, column: int, *args, **kwargs):
+    def __init__(self, excel_workbook: openpyxl.Workbook, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class WikiService(Services.Service.Service):
         self.excel_worksheet = excel_workbook.active
         self.browsers = []
         self.browsers_locks = []
-        self.url_prefix = ""
+        self.url_prefix = ("https://zh.wikipedia.org/wiki/", "https://en.wikipedia.org/wiki/")
         self.ROOT = os.getcwd()
         self.thread_num = 1
         self._browser_index = None
@@ -38,20 +39,20 @@ class WikiService(Services.Service.Service):
         else:
             self.result_path = "result"
         self.person_name = kwargs.get("person", "")
-        self.__to_crawl = []
+        self.__to_crawl = []  # 先中后英
         self.__to_crawl_flag = []
-        self.__pre(column)
+        self.__pre()
 
     def __mkdir(self, path):
         if not os.path.exists(path):
             os.mkdir(path)
 
-    def __pre(self, active_col):
-        assert active_col > 0
-        for r in range(1, self.excel_worksheet.max_row + 1):
-            cell = self.excel_worksheet.cell(row=r, column=active_col)
-            self.__to_crawl.append(cell.value)
+    def __pre(self):
 
+        for r in range(1, self.excel_worksheet.max_row + 1):
+            en_cell = self.excel_worksheet.cell(row=r, column=5)
+            ch_cell = self.excel_worksheet.cell(row=r, column=6)
+            self.__to_crawl.append((ch_cell.value, en_cell.value,))
 
         self.result_root = os.path.join(self.ROOT, f"wiki-result-{self.person_name}", self.result_path)
         logging.info(f"创建结果ROOT目录 {self.result_root} -- 开始 --")
@@ -73,84 +74,89 @@ class WikiService(Services.Service.Service):
     def __handle_a_query(self, index_crawl):
         index = self._browser_index.increase_and_get()
         with self.browsers_locks[index]:
-            logging.info(f"browser {index} is running")
-            fullscreenshot_path = ""
-            full_screen_img = None
-            to_crawl = validatetitle(self.__to_crawl[index_crawl])
+            for ch in range(2):
+                search_flag = False
+                logging.info(f"browser {index} is running")
+                fullscreenshot_path = ""
+                full_screen_img = None
+                #to_crawl = validatetitle(self.__to_crawl[index_crawl][ch])
+                name_for_save = validatetitle(self.__to_crawl[index_crawl][0]) # 都存在中文目录下
+                # 网址
+                url = self.url_prefix[ch] + self.__to_crawl[index_crawl][ch]
+                self.res["urls"].append(url)
+                img_open = None
+                try:
+                    logging.info(f"---------------- 正在尝试在wiki上搜索{self.__to_crawl[index_crawl][ch]}  ----------------")
+                    self.browsers[index].get(url)
 
-            # 网址
-            url = self.url_prefix + self.__to_crawl[index_crawl]
-            self.res["urls"].append(url)
-            img_open = None
-            try:
-                logging.info(f"---------------- 正在尝试在wiki上搜索{self.__to_crawl[index_crawl]}  ----------------")
-                self.browsers[index].get(url)
+                    element = self.browsers[index].find_element("xpath", "//*[@*='infobox vcard']")
 
-                element = self.browsers[index].find_element("xpath", "//*[@*='infobox vcard']")
+                except:
+                    logging.error(f"---------------- There is no {self.__to_crawl[index_crawl][ch]} on wiki ! ----------------")
+                else:
+                    logging.info(f"----------- 已搜索到{self.__to_crawl[index_crawl][ch]} -----------")
+                    search_flag = True
+                    self.__mkdir(os.path.join(self.result_root, name_for_save))
+                    html_path = os.path.join(self.result_root, name_for_save,
+                                             f"{validatetitle(self.browsers[index].title)}.mhtml")
+                    logging.info(f"保存{self.__to_crawl[index_crawl][ch]} mhtml成功")
+                    self.__save_as_html(index, html_path)
+                    width = self.browsers[index].execute_script("return document.documentElement.scrollWidth")
+                    height = self.browsers[index].execute_script("return document.body.scrollHeight")
+                    # 将浏览器的宽高设置成刚刚获取的宽高
+                    self.browsers[index].set_window_size(width, height)
+                    # full screenshot
+                    self.browsers[index].execute_script("window.print();")
+                    # fullscreenshot_path = os.path.join(self.result_root,  to_crawl,
+                    #                                    f"{validatetitle(self.browsers[i].title)}.jpg")
+                    fullscreenshot_path = os.path.join(self.result_root, name_for_save,
+                                                       "abstract.jpg")  # 实际上这里是暂存了整个页面的图片，取名abstract是为了之后真正存摘要图片是覆盖它
+                    save_done = self.browsers[index].save_screenshot(fullscreenshot_path)
 
-            except:
-                logging.error(f"---------------- There is no {self.__to_crawl[index_crawl]} on wiki ! ----------------")
-            else:
-                logging.info(f"----------- 已搜索到{self.__to_crawl[index_crawl]} -----------")
-                self.__mkdir(os.path.join(self.result_root, to_crawl))
-                html_path = os.path.join(self.result_root, to_crawl,
-                                         f"{validatetitle(self.browsers[index].title)}.mhtml")
-                logging.info(f"保存{self.__to_crawl[index_crawl]} mhtml成功")
-                self.__save_as_html(index, html_path)
-                width = self.browsers[index].execute_script("return document.documentElement.scrollWidth")
-                height = self.browsers[index].execute_script("return document.body.scrollHeight")
-                # 将浏览器的宽高设置成刚刚获取的宽高
-                self.browsers[index].set_window_size(width, height)
-                # full screenshot
-                self.browsers[index].execute_script("window.print();")
-                # fullscreenshot_path = os.path.join(self.result_root,  to_crawl,
-                #                                    f"{validatetitle(self.browsers[i].title)}.jpg")
-                fullscreenshot_path = os.path.join(self.result_root, to_crawl,
-                                                   "abstract.jpg")  # 实际上这里是暂存了整个页面的图片，取名abstract是为了之后真正存摘要图片是覆盖它
-                save_done = self.browsers[index].save_screenshot(fullscreenshot_path)
-
-                full_screen_pdf_path = os.path.join(self.result_root, to_crawl,
-                                                    f"{validatetitle(self.browsers[index].title)}.pdf")
-                while not save_done:
-                    pass
-                full_screen_img = Image.open(fullscreenshot_path)
-                if full_screen_img.mode in ("RGBA", "P"):
-                    full_screen_img = full_screen_img.convert("RGB")
-                full_screen_img.save(full_screen_pdf_path)
-                logging.info(f"保存{self.__to_crawl[index_crawl]} pdf 成功")
-                # html_path = os.path.join(self.result_root,  to_crawl,
-                #                          f"{validatetitle(self.browsers[i].title)}.html")
-                # with open(html_path, "w", encoding='utf-8') as f:
-                #     f.write(self.browsers[i].page_source)
-                # element shot
-                location = element.location
-                # to get the dimension the element
-                size = element.size
-                # to get the screenshot of complete page
-                # to get the x axis
-                x = location['x']
-                # to get the y axis
-                y = location['y']
-                # to get the length the element
-                height = location['y'] + size['height']
-                # to get the width the element
-                width = location['x'] + size['width']
-                # to open the captured image
-                img_open = Image.open(fullscreenshot_path)
-                # to crop the captured image to size of that element
-                img_open = img_open.crop((int(x), int(y), int(width), int(height)))
-                # to save the cropped image
-                element_shot_path = os.path.join(self.result_root, to_crawl,
-                                                 "abstract.jpg")
-                if img_open.mode in ("RGBA", "P"):
-                    img_open = img_open.convert("RGB")
-                img_open.save(element_shot_path)
-                logging.info(f"保存{self.__to_crawl[index_crawl]} abstract 成功")
-            finally:
-                if img_open is not None:
-                    img_open.close()
-                if full_screen_img is not None:
-                    full_screen_img.close()
+                    full_screen_pdf_path = os.path.join(self.result_root, name_for_save,
+                                                        f"{validatetitle(self.browsers[index].title)}.pdf")
+                    while not save_done:
+                        pass
+                    full_screen_img = Image.open(fullscreenshot_path)
+                    if full_screen_img.mode in ("RGBA", "P"):
+                        full_screen_img = full_screen_img.convert("RGB")
+                    full_screen_img.save(full_screen_pdf_path)
+                    logging.info(f"保存{self.__to_crawl[index_crawl][ch]} pdf 成功")
+                    # html_path = os.path.join(self.result_root,  to_crawl,
+                    #                          f"{validatetitle(self.browsers[i].title)}.html")
+                    # with open(html_path, "w", encoding='utf-8') as f:
+                    #     f.write(self.browsers[i].page_source)
+                    # element shot
+                    location = element.location
+                    # to get the dimension the element
+                    size = element.size
+                    # to get the screenshot of complete page
+                    # to get the x axis
+                    x = location['x']
+                    # to get the y axis
+                    y = location['y']
+                    # to get the length the element
+                    height = location['y'] + size['height']
+                    # to get the width the element
+                    width = location['x'] + size['width']
+                    # to open the captured image
+                    img_open = Image.open(fullscreenshot_path)
+                    # to crop the captured image to size of that element
+                    img_open = img_open.crop((int(x), int(y), int(width), int(height)))
+                    # to save the cropped image
+                    element_shot_path = os.path.join(self.result_root, name_for_save,
+                                                     "abstract.jpg")
+                    if img_open.mode in ("RGBA", "P"):
+                        img_open = img_open.convert("RGB")
+                    img_open.save(element_shot_path)
+                    logging.info(f"保存{self.__to_crawl[index_crawl][ch]} abstract 成功")
+                finally:
+                    if img_open is not None:
+                        img_open.close()
+                    if full_screen_img is not None:
+                        full_screen_img.close()
+                    if search_flag:
+                        break
 
     def __del__(self):
         logging.info(f"{self.result_path} is closing ")
@@ -166,7 +172,7 @@ class WikiService(Services.Service.Service):
         if multi_thread:
             self.thread_num = params.get("thread-num", multiprocessing.cpu_count() - 1)
         self._browser_index = ThreadUtils.ThreadSafeLoopCounter(self.thread_num)
-        self.url_prefix = f"https://{region}.wikipedia.org/wiki/"
+
         # url_prefix = "https://baike.baidu.com/item/"
         self.res["urls"] = []
         from selenium import webdriver

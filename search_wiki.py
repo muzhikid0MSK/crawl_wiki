@@ -21,15 +21,15 @@ def file_filter(origin_list, needed: list):
 
 
 def run_wiki_service():
-    root_dir_path = "C:\\Users\\meish\\Documents\\WeChat Files\\wxid_9qctubkcyc522\\FileStorage\\File\\2023-08\\ports"
+    root_dir_path = "C:\\Users\\meish\\Documents\\WeChat Files\\wxid_9qctubkcyc522\\FileStorage\\File\\2023-08\\xlsx(1)"
     file_list = walk_files(root_dir_path)
 
     # filter = ["西班牙港口", "韩国港口"]
     # file_list = file_filter(file_list,filter)
     for file in file_list:
         read_excel_service = ReadExcelService(file)
-        wiki_service = WikiService(read_excel_service.work_book, 5, file.split("\\")[-1].replace(".xlsx", ""),
-                                   person="易炳艳")
+        wiki_service = WikiService(read_excel_service.work_book, file.split("\\")[-1].replace(".xlsx", ""),
+                                   person="任可")
         options = {
             "region": "en",
             "multi-thread": True,
@@ -44,3 +44,4 @@ def run_wiki_service():
 
 if __name__ == "__main__":
     run_wiki_service()
+
