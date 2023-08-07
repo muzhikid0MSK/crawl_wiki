@@ -57,7 +57,7 @@ def run_wiki_service():
         read_excel_service = ReadExcelService(file)
         wiki_service = WikiService(read_excel_service.work_book, browsers, browsers_locks,
                                    file.split("\\")[-1].replace(".xlsx", ""),
-                                   person="任可")
+                                   person="某某")
         options = {
             "multi-thread": True,
         }
